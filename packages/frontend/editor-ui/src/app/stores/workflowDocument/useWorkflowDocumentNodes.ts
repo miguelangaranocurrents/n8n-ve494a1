@@ -574,7 +574,9 @@ export function useWorkflowDocumentNodes(deps: WorkflowDocumentNodesDeps) {
 		invalid: INodeCredentialsDetails;
 		type: string;
 	}) {
-		nodes.value.forEach((node: INodeUi) => {
+		let replaced = false;
+
+		nodes.value.forEach((node: INodeUi, nodeIndex: number) => {
 			const nodeCredentials: INodeCredentials | undefined = (node as unknown as INode).credentials;
 			if (!nodeCredentials?.[data.type]) {
 				return;
@@ -582,25 +584,26 @@ export function useWorkflowDocumentNodes(deps: WorkflowDocumentNodesDeps) {
 
 			const nodeCredentialDetails: INodeCredentialsDetails | string = nodeCredentials[data.type];
 
-			if (
-				typeof nodeCredentialDetails === 'string' &&
-				nodeCredentialDetails === data.invalid.name
-			) {
-				(node.credentials as INodeCredentials)[data.type] = data.credentials;
-				return;
-			}
+			const isInvalid =
+				typeof nodeCredentialDetails === 'string'
+					? nodeCredentialDetails === data.invalid.name
+					: nodeCredentialDetails.id === null
+						? nodeCredentialDetails.name === data.invalid.name
+						: nodeCredentialDetails.id === data.invalid.id;
 
-			if (nodeCredentialDetails.id === null) {
-				if (nodeCredentialDetails.name === data.invalid.name) {
-					(node.credentials as INodeCredentials)[data.type] = data.credentials;
-				}
-				return;
-			}
+			if (!isInvalid) return;
 
-			if (nodeCredentialDetails.id === data.invalid.id) {
-				(node.credentials as INodeCredentials)[data.type] = data.credentials;
-			}
+			// Replace with a new object (not in place) so the change is detected,
+			// synced to the workflow object and the workflow is marked dirty.
+			const changed = updateNodeAtIndex(nodeIndex, {
+				credentials: { ...nodeCredentials, [data.type]: data.credentials },
+			});
+			if (changed) replaced = true;
 		});
+
+		if (replaced) {
+			void onStateDirty.trigger();
+		}
 	}
 
 	// Assign credential to all nodes that support it but don't have it set
